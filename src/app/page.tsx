@@ -5,14 +5,16 @@ import LiquidMetalHero from "@/components/ui/liquid-metal-hero";
 export default function Home() {
   return (
     <LiquidMetalHero
-      badge="Next-generation UI"
+      badge="AI-Powered Cybersecurity"
       title="CyberGuard AI"
-      subtitle="Experience a responsive interface that flows, adapts, and makes a lasting first impression."
-      primaryCtaLabel="Start Building"
-      secondaryCtaLabel="View Examples"
-      onPrimaryCtaClick={() => alert("Let’s start building!")}
+      subtitle="Detect, analyze, and respond to evolving cyber threats with intelligent security built for modern teams."
+      primaryCtaLabel="Secure Your Business"
+      secondaryCtaLabel="Explore Platform"
+      onPrimaryCtaClick={() => (window.location.href = "/dashboard")}
       onSecondaryCtaClick={() => alert("Examples coming soon.")}
-      features={["Seamless animations", "Responsive by design", "Modern architecture"]}
+      features={["Real-Time Threat Detection",
+  "AI-Powered Analysis",
+  "24/7 Security Monitoring"]}
     />
   );
 }
