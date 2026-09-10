@@ -1,0 +1,13 @@
+{
+  "model": "Random Forest",
+  "accuracy": 0.9037,
+  "precision": 0.8676,
+  "recall": 0.9736,
+  "f1_score": 0.9176,
+  "roc_auc": 0.985,
+  "false_positive_rate": 0.1821,
+  "true_negatives": 30264,
+  "false_positives": 6736,
+  "false_negatives": 1196,
+  "true_positives": 44136
+}

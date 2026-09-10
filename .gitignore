@@ -48,3 +48,5 @@ __pycache__/
 backend/.venv/
 __pycache__/
 *.pyc
+data/raw/*.csv
+ml/models/*.joblib

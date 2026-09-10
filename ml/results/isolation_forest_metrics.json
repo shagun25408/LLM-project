@@ -1,0 +1,14 @@
+{
+  "model": "Isolation Forest",
+  "threshold": 0.4444,
+  "accuracy": 0.7125,
+  "precision": 0.9078,
+  "recall": 0.5319,
+  "f1_score": 0.6708,
+  "roc_auc": 0.8341,
+  "false_positive_rate": 0.0662,
+  "true_negatives": 34552,
+  "false_positives": 2448,
+  "false_negatives": 21221,
+  "true_positives": 24111
+}

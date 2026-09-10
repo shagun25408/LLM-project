@@ -11,6 +11,8 @@ from .database import Base, SessionLocal, engine, test_database_connection
 from .models import IncidentModel
 from .seed import seed_incidents
 from .detection import analyze_login_event
+from typing import Any
+from app.ml_service import MODEL_PATH, predict_flow
 
 Base.metadata.create_all(bind=engine)
 
@@ -69,6 +71,16 @@ class DetectionResponse(BaseModel):
     threat_type: str | None = None
     severity: str | None = None
     confidence: float | None = None
+    
+class FlowPredictionRequest(BaseModel):
+    features: dict[str, Any]
+
+
+class FlowPredictionResponse(BaseModel):
+    prediction: int
+    classification: str
+    attack_probability: float
+    model: str
 
 
 @app.get("/")
@@ -181,6 +193,24 @@ def get_incident(incident_id: int):
             raise HTTPException(status_code=404, detail="Incident not found.")
 
         return incident
+    
+@app.get("/api/v1/ml/status")
+def ml_model_status():
+    return {
+        "status": "ready" if MODEL_PATH.exists() else "model_not_found",
+        "model": "Random Forest",
+        "model_path": str(MODEL_PATH),
+    }
+
+
+@app.post("/api/v1/ml/predict", response_model=FlowPredictionResponse)
+def predict_network_flow(payload: FlowPredictionRequest):
+    try:
+        return predict_flow(payload.features)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error))
+    except FileNotFoundError as error:
+        raise HTTPException(status_code=503, detail=str(error))
 
 
 @app.get("/api/v1/dashboard/summary")
