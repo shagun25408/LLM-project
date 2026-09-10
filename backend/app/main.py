@@ -1,10 +1,21 @@
 from datetime import datetime, timezone
 from typing import Literal
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import func, select
+from sqlalchemy.exc import SQLAlchemyError
 
+from .database import Base, SessionLocal, engine, test_database_connection
+from .models import IncidentModel
+from .seed import seed_incidents
+from .detection import analyze_login_event
+
+Base.metadata.create_all(bind=engine)
+
+with SessionLocal() as database_session:
+    seed_incidents(database_session)
 
 app = FastAPI(
     title="CyberGuard AI API",
@@ -32,74 +43,175 @@ class Incident(BaseModel):
     detected_at: datetime
     evidence: list[str]
 
+    model_config = ConfigDict(from_attributes=True)
+    
+class IncidentCreate(BaseModel):
+    threat_type: str
+    severity: Literal["CRITICAL", "HIGH", "MEDIUM", "LOW"]
+    confidence: float
+    source_ip: str
+    target_service: str
+    status: Literal["OPEN", "INVESTIGATING", "RESOLVED"]
+    evidence: list[str]
+    detected_at: datetime | None = None
+    
+class LoginEvent(BaseModel):
+    source_ip: str
+    target_service: str = "SSH"
+    failed_login_attempts: int = Field(ge=0)
+    time_window_minutes: int = Field(gt=0, le=1440)
 
-INCIDENTS = [
-    Incident(
-        id=1,
-        threat_type="Brute Force Attempt",
-        severity="HIGH",
-        confidence=0.94,
-        source_ip="192.0.2.45",
-        target_service="SSH",
-        status="OPEN",
-        detected_at=datetime.now(timezone.utc),
-        evidence=["147 failed login attempts in 3 minutes", "Repeated SSH authentication failures"],
-    ),
-    Incident(
-        id=2,
-        threat_type="Port Scan",
-        severity="MEDIUM",
-        confidence=0.87,
-        source_ip="198.51.100.17",
-        target_service="Web Server",
-        status="INVESTIGATING",
-        detected_at=datetime.now(timezone.utc),
-        evidence=["Multiple ports probed in a short time window", "Unusual connection pattern"],
-    ),
-    Incident(
-        id=3,
-        threat_type="Malware-like Network Activity",
-        severity="CRITICAL",
-        confidence=0.98,
-        source_ip="203.0.113.9",
-        target_service="Endpoint Network",
-        status="OPEN",
-        detected_at=datetime.now(timezone.utc),
-        evidence=["Known suspicious command-and-control pattern", "Unexpected outbound traffic volume"],
-    ),
-]
+
+class DetectionResponse(BaseModel):
+    detected: bool
+    message: str
+    incident_id: int | None = None
+    threat_type: str | None = None
+    severity: str | None = None
+    confidence: float | None = None
 
 
 @app.get("/")
 def root():
-    return {"message": "CyberGuard AI backend is running", "status": "online"}
+    return {
+        "message": "CyberGuard AI backend is running",
+        "status": "online",
+    }
 
 
 @app.get("/health")
 def health_check():
-    return {"status": "healthy", "service": "cyberguard-api"}
+    return {
+        "status": "healthy",
+        "service": "cyberguard-api",
+    }
+
+
+@app.get("/health/database")
+def database_health_check():
+    try:
+        test_database_connection()
+        return {
+            "status": "healthy",
+            "database": "postgresql",
+        }
+    except SQLAlchemyError as error:
+        raise HTTPException(
+            status_code=503,
+            detail="PostgreSQL database is unavailable.",
+        ) from error
+        
+@app.post("/api/v1/detect/login", response_model=DetectionResponse)
+def detect_login_threat(event: LoginEvent):
+    detection = analyze_login_event(
+        failed_login_attempts=event.failed_login_attempts,
+        time_window_minutes=event.time_window_minutes,
+        source_ip=event.source_ip,
+        target_service=event.target_service,
+    )
+
+    if detection is None:
+        return {
+            "detected": False,
+            "message": "No threat detected by the authentication rules.",
+        }
+
+    new_incident = IncidentModel(
+        threat_type=detection["threat_type"],
+        severity=detection["severity"],
+        confidence=detection["confidence"],
+        source_ip=event.source_ip,
+        target_service=event.target_service,
+        status="OPEN",
+        detected_at=datetime.now(timezone.utc),
+        evidence=detection["evidence"],
+    )
+
+    with SessionLocal() as database_session:
+        database_session.add(new_incident)
+        database_session.commit()
+        database_session.refresh(new_incident)
+
+        return {
+            "detected": True,
+            "message": "Threat detected and incident created.",
+            "incident_id": new_incident.id,
+            "threat_type": new_incident.threat_type,
+            "severity": new_incident.severity,
+            "confidence": new_incident.confidence,
+        }
+        
+@app.post("/api/v1/incidents", response_model=Incident, status_code=201)
+def create_incident(payload: IncidentCreate):
+    new_incident = IncidentModel(
+        threat_type=payload.threat_type,
+        severity=payload.severity,
+        confidence=payload.confidence,
+        source_ip=payload.source_ip,
+        target_service=payload.target_service,
+        status=payload.status,
+        detected_at=payload.detected_at or datetime.now(timezone.utc),
+        evidence=payload.evidence,
+    )
+
+    with SessionLocal() as database_session:
+        database_session.add(new_incident)
+        database_session.commit()
+        database_session.refresh(new_incident)
+
+        return new_incident
 
 
 @app.get("/api/v1/incidents", response_model=list[Incident])
 def list_incidents():
-    return INCIDENTS
+    with SessionLocal() as database_session:
+        incidents = database_session.scalars(
+            select(IncidentModel).order_by(IncidentModel.detected_at.desc())
+        ).all()
+
+        return incidents
 
 
 @app.get("/api/v1/incidents/{incident_id}", response_model=Incident)
 def get_incident(incident_id: int):
-    for incident in INCIDENTS:
-        if incident.id == incident_id:
-            return incident
+    with SessionLocal() as database_session:
+        incident = database_session.get(IncidentModel, incident_id)
 
-    return {"error": "Incident not found"}
+        if incident is None:
+            raise HTTPException(status_code=404, detail="Incident not found.")
+
+        return incident
 
 
 @app.get("/api/v1/dashboard/summary")
 def dashboard_summary():
-    return {
-        "total_threats": len(INCIDENTS),
-        "critical_threats": sum(item.severity == "CRITICAL" for item in INCIDENTS),
-        "high_threats": sum(item.severity == "HIGH" for item in INCIDENTS),
-        "active_incidents": sum(item.status != "RESOLVED" for item in INCIDENTS),
-        "system_status": "MONITORING",
-    }
+    with SessionLocal() as database_session:
+        total_threats = database_session.scalar(
+            select(func.count()).select_from(IncidentModel)
+        ) or 0
+
+        critical_threats = database_session.scalar(
+            select(func.count())
+            .select_from(IncidentModel)
+            .where(IncidentModel.severity == "CRITICAL")
+        ) or 0
+
+        high_threats = database_session.scalar(
+            select(func.count())
+            .select_from(IncidentModel)
+            .where(IncidentModel.severity == "HIGH")
+        ) or 0
+
+        active_incidents = database_session.scalar(
+            select(func.count())
+            .select_from(IncidentModel)
+            .where(IncidentModel.status != "RESOLVED")
+        ) or 0
+
+        return {
+            "total_threats": total_threats,
+            "critical_threats": critical_threats,
+            "high_threats": high_threats,
+            "active_incidents": active_incidents,
+            "system_status": "MONITORING",
+        }
