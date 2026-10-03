@@ -11,7 +11,7 @@ export default function Home() {
       primaryCtaLabel="Secure Your Business"
       secondaryCtaLabel="Explore Platform"
       onPrimaryCtaClick={() => (window.location.href = "/dashboard")}
-      onSecondaryCtaClick={() => alert("Examples coming soon.")}
+      onSecondaryCtaClick={() => (window.location.href = "/dashboard/analyze")}
       features={["Real-Time Threat Detection",
   "AI-Powered Analysis",
   "24/7 Security Monitoring"]}

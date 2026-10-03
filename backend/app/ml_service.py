@@ -30,16 +30,20 @@ def get_model():
     return joblib.load(MODEL_PATH)
 
 
-def predict_flow(features: dict[str, Any]) -> dict[str, Any]:
+def validate_features(columns: list[str]) -> None:
     missing_features = [
         feature for feature in EXPECTED_FEATURES
-        if feature not in features
+        if feature not in columns
     ]
 
     if missing_features:
         raise ValueError(
             "Missing required features: " + ", ".join(missing_features)
         )
+
+
+def predict_flow(features: dict[str, Any]) -> dict[str, Any]:
+    validate_features(list(features.keys()))
 
     model = get_model()
     flow_data = pd.DataFrame([features])[EXPECTED_FEATURES]
@@ -53,3 +57,32 @@ def predict_flow(features: dict[str, Any]) -> dict[str, Any]:
         "attack_probability": round(attack_probability, 4),
         "model": "Random Forest",
     }
+
+
+def predict_flows(traffic_data: pd.DataFrame) -> list[dict[str, Any]]:
+    validate_features(list(traffic_data.columns))
+
+    model = get_model()
+    flow_data = traffic_data[EXPECTED_FEATURES].copy()
+
+    predictions = model.predict(flow_data)
+    probabilities = model.predict_proba(flow_data)[:, 1]
+
+    results = []
+
+    for row_number, (prediction, probability) in enumerate(
+        zip(predictions, probabilities),
+        start=1,
+    ):
+        results.append(
+            {
+                "row_number": row_number,
+                "prediction": int(prediction),
+                "classification": (
+                    "ATTACK" if int(prediction) == 1 else "NORMAL"
+                ),
+                "attack_probability": round(float(probability), 4),
+            }
+        )
+
+    return results
